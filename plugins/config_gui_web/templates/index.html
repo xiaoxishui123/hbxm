@@ -318,32 +318,36 @@
                                         </tbody>
                                     </table>
                                 </div>
-                                <div class="mb-3">
-                                    <label for="newTaskTag" class="form-label">标签</label>
-                                    <input type="text" class="form-control" id="newTaskTag" placeholder="输入标签">
-                                </div>
-                                <div class="mb-3">
-                                    <label for="newTaskScheduleType" class="form-label">调度类型</label>
-                                    <select class="form-select" id="newTaskScheduleType">
-                                        <option value="today">今天</option>
-                                        <option value="tomorrow">明天</option>
-                                        <option value="day_after_tomorrow">后天</option>
-                                        <option value="daily">每天</option>
-                                        <option value="workdays">工作日</option>
-                                        <option value="weekly">每周</option>
-                                        <option value="specific_date">具体日期</option>
-                                        <option value="cron">Cron表达式</option>
-                                    </select>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="newTaskTime" class="form-label">时间</label>
-                                    <input type="text" class="form-control" id="newTaskTime" placeholder="输入时间，例如 14:30">
+                                <div class="row">
+                                    <div class="col-md-3 mb-3">
+                                        <label for="newTaskTag" class="form-label">标签</label>
+                                        <select class="form-control" id="newTaskTag">
+                                            <!-- 标签选项将由 JavaScript 动态填充 -->
+                                        </select>
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="newTaskScheduleType" class="form-label">调度类型</label>
+                                        <select class="form-select" id="newTaskScheduleType">
+                                            <option value="today">今天</option>
+                                            <option value="tomorrow">明天</option>
+                                            <option value="day_after_tomorrow">后天</option>
+                                            <option value="daily">每天</option>
+                                            <option value="workdays">工作日</option>
+                                            <option value="weekly">每周</option>
+                                            <option value="specific_date">具体日期</option>
+                                            <option value="cron">Cron表达式</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2 mb-3">
+                                        <label for="newTaskTime" class="form-label">时间</label>
+                                        <input type="time" class="form-control" id="newTaskTime">
+                                    </div>
                                 </div>
                                 <div class="mb-3">
                                     <label for="newTaskMessage" class="form-label">消息</label>
                                     <textarea class="form-control" id="newTaskMessage" rows="3" placeholder="输入消息内容"></textarea>
                                 </div>
-                                <button class="btn btn-primary" id="addTaskButton">添加任务</button>
+                                <button type="button" class="btn btn-primary" onclick="addScheduledTask()">添加任务</button>
                             </div>
                         </div>
                     </div>

@@ -169,11 +169,10 @@ function getScheduledTasksConfig() {
         const task = {
             id: row.querySelector('.task-id').textContent,
             tag: row.querySelector('.task-tag').value,
-            schedule_type: row.querySelector('.task-schedule-type').value, // 新增调度类型
             time: row.querySelector('.task-time').value,
             message: row.querySelector('.task-message').value
         };
-        if (task.tag && task.schedule_type && task.time && task.message) {
+        if (task.tag && task.time && task.message) {
             tasks.push(task);
         }
     });
@@ -243,10 +242,10 @@ async function addTagFriends() {
 
 // 添加定时任务
 async function addScheduledTask() {
-    const tag = document.getElementById('taskTag').value;
-    const scheduleType = document.getElementById('taskScheduleType').value; // 新增调度类型
-    const time = document.getElementById('taskTime').value;
-    const message = document.getElementById('taskMessage').value;
+    const tag = document.getElementById('newTaskTag').value;
+    const scheduleType = document.getElementById('newTaskScheduleType').value;
+    const time = document.getElementById('newTaskTime').value;
+    const message = document.getElementById('newTaskMessage').value;
     
     if (!tag || !scheduleType || !time || !message) {
         showAlert('请填写完整的任务信息', 'warning');
@@ -257,38 +256,25 @@ async function addScheduledTask() {
         // 调用后端API添加任务
         const response = await axios.post('/api/tasks', {
             tag: tag,
-            schedule_type: scheduleType, // 传递调度类型
+            schedule_type: scheduleType,
             time: time,
             message: message
         });
 
-        if (response.data && response.data.id) {
-            const taskId = response.data.id;
-            const tbody = document.querySelector('#scheduledTasksTable tbody');
-            if (!tbody) {
-                console.error('Scheduled tasks table not found');
-                return;
-            }
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td class="task-id">${taskId}</td>
-                <td><select class="form-select task-tag">${getTagOptionsHtml(tag)}</select></td>
-                <td><select class="form-select task-schedule-type">${scheduleType}</select></td> <!-- 新增调度类型 -->
-                <td><input type="time" class="form-control task-time" value="${time}"></td>
-                <td><input type="text" class="form-control task-message" value="${message}"></td>
-                <td>
-                    <button class="btn btn-success btn-sm me-1" onclick="saveScheduledTaskRow(this)">保存</button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteScheduledTask(this)">删除</button>
-                </td>
-            `;
-            tbody.appendChild(tr);
-            
+        if (response.status === 201) {
             showAlert('任务添加成功', 'success');
             
             // 清空输入
-            document.getElementById('taskScheduleType').value = ''; // 清空调度类型
-            document.getElementById('taskTime').value = '';
-            document.getElementById('taskMessage').value = '';
+            document.getElementById('newTaskTag').value = '';
+            document.getElementById('newTaskScheduleType').value = 'today';
+            document.getElementById('newTaskTime').value = '';
+            document.getElementById('newTaskMessage').value = '';
+            
+            // 立即刷新任务列表
+            await updateScheduledTasksTable();
+            
+            // 立即检查任务状态
+            checkTaskStatus();
         }
     } catch (error) {
         console.error('添加任务失败:', error);
@@ -383,19 +369,27 @@ async function importConfig() {
 
 // 更新标签选择下拉列表
 function updateTagSelects() {
-    const tags = tagConfig.enabled_tags || [];
-    const selects = ['newTagSelect', 'broadcastTag', 'taskTag'];
-    selects.forEach(id => {
-        const select = document.getElementById(id);
-        if (select) {
-            select.innerHTML = getTagOptionsHtml();
+    // 获取所有标签选择下拉框
+    const tagSelects = document.querySelectorAll('.tag-select, #newTaskTag');
+    
+    // 获取启用的标签列表
+    const enabledTags = document.getElementById('enabledTags')?.value.split('\n').filter(x => x) || [];
+    
+    // 为每个下拉框更新选项
+    tagSelects.forEach(select => {
+        const currentValue = select.value;
+        select.innerHTML = getTagOptionsHtml(currentValue);
+        
+        // 如果当前值在新的选项中不存在，选择第一个选项
+        if (!enabledTags.includes(currentValue) && enabledTags.length > 0) {
+            select.value = enabledTags[0];
         }
     });
 }
 
 // 获取标签选项HTML
 function getTagOptionsHtml(selectedTag = '') {
-    const tags = tagConfig.enabled_tags || [];
+    const tags = document.getElementById('enabledTags')?.value.split('\n').filter(x => x) || [];
     return tags.map(tag => 
         `<option value="${tag}" ${tag === selectedTag ? 'selected' : ''}>${tag}</option>`
     ).join('');
@@ -403,7 +397,7 @@ function getTagOptionsHtml(selectedTag = '') {
 
 // 获取调度类型选项HTML
 function getScheduleTypeOptionsHtml(selectedType = '') {
-    const options = [
+    const scheduleTypes = [
         { value: 'today', label: '今天' },
         { value: 'tomorrow', label: '明天' },
         { value: 'day_after_tomorrow', label: '后天' },
@@ -414,8 +408,8 @@ function getScheduleTypeOptionsHtml(selectedType = '') {
         { value: 'cron', label: 'Cron表达式' }
     ];
     
-    return options.map(option => 
-        `<option value="${option.value}" ${option.value === selectedType ? 'selected' : ''}>${option.label}</option>`
+    return scheduleTypes.map(type => 
+        `<option value="${type.value}" ${type.value === selectedType ? 'selected' : ''}>${type.label}</option>`
     ).join('');
 }
 
@@ -458,14 +452,12 @@ function loadExampleConfig() {
                         {
                             id: '1',
                             tag: '朋友',
-                            schedule_type: 'daily', // 新增调度类型
                             time: '09:00',
                             message: '早上好！'
                         },
                         {
                             id: '2',
                             tag: '家人',
-                            schedule_type: 'weekly', // 新增调度类型
                             time: '12:00',
                             message: '午饭时间到了！'
                         }
@@ -604,24 +596,36 @@ function updateTagFriendsTable() {
 }
 
 // 更新定时任务表格
-function updateScheduledTasksTable() {
-    const tbody = document.querySelector('#scheduledTasksTable tbody');
-    if (!tbody) {
-        console.error('Scheduled tasks table not found');
-        return;
-    }
-    
+async function updateScheduledTasksTable() {
     try {
-        tbody.textContent = '';  // 使用 textContent 清空内容
-        const tasks = tagConfig.scheduled_tasks || [];
+        const response = await axios.get('/api/tasks');
+        const tasks = response.data;
+        
+        const tbody = document.querySelector('#scheduledTasksTable tbody');
+        if (!tbody) {
+            console.error('Scheduled tasks table not found');
+            return;
+        }
+        
+        // 清空现有内容
+        tbody.innerHTML = '';
+        
+        // 添加所有任务
         tasks.forEach(task => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td class="task-id">${task.id || ''}</td>
-                <td><select class="form-select task-tag">${getTagOptionsHtml(task.tag)}</select></td>
-                <td><select class="form-select task-schedule-type">${getScheduleTypeOptionsHtml(task.schedule_type)}</select></td>
-                <td><input type="time" class="form-control task-time" value="${task.time || ''}"></td>
-                <td><input type="text" class="form-control task-message" value="${task.message || ''}"></td>
+                <td class="task-id">${task.id}</td>
+                <td><select class="form-control task-tag">
+                    ${getTagOptionsHtml(task.tag)}
+                </select></td>
+                <td><select class="form-control task-schedule-type">
+                    ${getScheduleTypeOptionsHtml(task.schedule_type)}
+                </select></td>
+                <td><input type="time" class="form-control task-time" value="${task.time}"></td>
+                <td><input type="text" class="form-control task-message" value="${task.message}"></td>
+                <td class="task-status">
+                    ${task.last_execution ? `上次执行: ${task.last_execution}` : '未执行'}
+                </td>
                 <td>
                     <button class="btn btn-success btn-sm me-1" onclick="saveScheduledTaskRow(this)">保存</button>
                     <button class="btn btn-danger btn-sm" onclick="deleteScheduledTask(this)">删除</button>
@@ -687,6 +691,34 @@ async function deleteTagFriendsRow(button) {
     }
 }
 
+// 删除定时任务
+async function deleteScheduledTask(button) {
+    try {
+        const row = button.closest('tr');
+        if (!row) {
+            showAlert('无法找到任务行', 'danger');
+            return;
+        }
+
+        const taskId = row.querySelector('.task-id')?.textContent;
+        if (!taskId) {
+            row.remove();
+            return;
+        }
+
+        // 调用删除任务API
+        await axios.delete(`/api/tasks/${taskId}`);
+        
+        // 更新任务列表
+        await updateScheduledTasksTable();
+        
+        showAlert('删除成功');
+    } catch (error) {
+        console.error('删除定时任务错误：', error);
+        showAlert(error.response?.data?.error || '删除失败', 'danger');
+    }
+}
+
 // 保存定时任务行
 async function saveScheduledTaskRow(button) {
     try {
@@ -709,69 +741,25 @@ async function saveScheduledTaskRow(button) {
 
         // 更新任务
         const task = {
-            id: taskId,
             tag: tag,
             schedule_type: scheduleType,
             time: time,
             message: message
         };
 
-        // 如果是新任务，添加到任务列表
-        if (!taskId) {
-            if (!Array.isArray(tagConfig.scheduled_tasks)) {
-                tagConfig.scheduled_tasks = [];
-            }
-            tagConfig.scheduled_tasks.push(task);
-        } else {
-            // 更新现有任务
-            const index = tagConfig.scheduled_tasks.findIndex(t => t.id === taskId);
-            if (index !== -1) {
-                tagConfig.scheduled_tasks[index] = task;
-            }
-        }
-
-        // 保存到服务器
-        await axios.post('/api/tag-config', tagConfig);
+        // 调用更新任务的API
+        await axios.put(`/api/tasks/${taskId}`, task);
         
-        // 重新加载任务列表
-        const response = await axios.get('/api/tag-config');
-        tagConfig = response.data;
-        updateScheduledTasksTable();
+        // 立即刷新任务列表
+        await updateScheduledTasksTable();
         
-        showAlert('保存成功');
+        // 立即检查任务状态
+        checkTaskStatus();
+        
+        showAlert('保存成功', 'success');
     } catch (error) {
         console.error('保存定时任务错误：', error);
-        showAlert('保存失败：' + (error.response?.data?.message || error.message), 'danger');
-    }
-}
-
-// 删除定时任务
-async function deleteScheduledTask(button) {
-    try {
-        const row = button.closest('tr');
-        if (!row) {
-            showAlert('无法找到任务行', 'danger');
-            return;
-        }
-
-        const taskId = row.querySelector('.task-id')?.textContent;
-        if (!taskId) {
-            row.remove();
-            return;
-        }
-
-        // 从任务列表中移除
-        tagConfig.scheduled_tasks = tagConfig.scheduled_tasks.filter(task => task.id !== taskId);
-
-        // 保存到服务器
-        await axios.post('/api/tag-config', tagConfig);
-        
-        // 更新界面
-        row.remove();
-        showAlert('删除成功');
-    } catch (error) {
-        console.error('删除定时任务错误：', error);
-        showAlert('删除失败：' + (error.response?.data?.message || error.message), 'danger');
+        showAlert(error.response?.data?.error || '保存失败', 'danger');
     }
 }
 

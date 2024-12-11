@@ -1,0 +1,47 @@
+{
+    "enable": true,
+    "tag_prefix": "$",
+    "allow_all_add_tag": false,
+    "allow_all_remove_tag": false,
+    "allow_all_view_tag": true,
+    "allow_all_list_tag": true,
+    "admin_users": [
+        "小溪水",
+        "赵健13930639123"
+    ],
+    "enabled_tags": [
+        "家人",
+        "朋友",
+        "客户"
+    ],
+    "tags_friends": {
+        "家人": [
+            "画画的胡栋",
+            "邓东来🇨🇳"
+        ],
+        "朋友": [
+            "所以说，晴空花火",
+            "小马一哈"
+        ]
+    },
+    "auto_reply": {},
+    "scheduled_tasks": [],
+    "updateAutoReplyTable": true,
+    "auto_reply_table": {},
+    "port": 5000,
+    "channel_type": "wx",
+    "model": "coze",
+    "expires_in_seconds": 3600,
+    "debug": false,
+    "message_interval": [3, 8],
+    "batch_size": 10,
+    "batch_interval": [30, 60],
+    "daily_limit": 1000,
+    "active_hours": [9, 22],
+    "schedule_settings": {
+        "default_timezone": "Asia/Shanghai",
+        "workdays": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+        "max_tasks": 100,
+        "check_interval": 60
+    }
+}

@@ -7,6 +7,19 @@
 __pycache__/
 venv*
 *.pyc
+# Configuration files with sensitive information
+config.json
+config-template.json
+**/config.json
+.env
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+# Virtual environment
+venv/
+env/
+*.pyc
 #config.json
 QR.png
 nohup.out

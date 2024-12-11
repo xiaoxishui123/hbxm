@@ -247,38 +247,60 @@ class ConfigGUIWebPlugin(Plugin):
         try:
             plugin_config_path = os.path.join("plugins", "tag_manager", "config.json")
             if not os.path.exists(plugin_config_path):
-                logger.warning(f"[ConfigGUIWeb] Tag manager config not found: {plugin_config_path}")
+                logger.error(f"[ConfigGUIWeb] Tag manager config not found: {plugin_config_path}")
                 return
             
             with open(plugin_config_path, 'r', encoding='utf-8') as f:
                 tag_config = json.load(f)
                 tasks = tag_config.get("scheduled_tasks", [])
                 
-                if not tasks:
-                    logger.info("[ConfigGUIWeb] No scheduled tasks found")
-                    return
+            if not tasks:
+                logger.info("[ConfigGUIWeb] No scheduled tasks found")
+                return
                     
-                for task in tasks:
-                    # 验证任务数据完整性
-                    required_fields = ["id", "tag", "time", "message"]
-                    if not all(field in task for field in required_fields):
-                        logger.error(f"[ConfigGUIWeb] Invalid task data: {task}")
-                        continue
+            for task in tasks:
+                # 验证任务数据完整性
+                required_fields = ["id", "tag", "time", "message"]
+                if not all(field in task for field in required_fields):
+                    logger.error(f"[ConfigGUIWeb] Invalid task data: {task}")
+                    continue
                     
-                    # 验证时间格式
-                    try:
-                        time.strptime(task["time"], "%H:%M")
-                    except ValueError:
-                        logger.error(f"[ConfigGUIWeb] Invalid time format in task: {task}")
-                        continue
+                # 验证时间格式
+                try:
+                    time.strptime(task["time"], "%H:%M")
+                except ValueError:
+                    logger.error(f"[ConfigGUIWeb] Invalid time format in task: {task}")
+                    continue
                     
-                    self.schedule_task(
-                        task["id"],
-                        task["tag"],
-                        task["time"],
-                        task["message"]
-                    )
-                logger.info(f"[ConfigGUIWeb] Successfully loaded {len(tasks)} scheduled tasks")
+                # 创建完整的任务对象
+                task_obj = {
+                    "id": task["id"],
+                    "tag": task["tag"],
+                    "schedule_type": task.get("schedule_type", "daily"),  # 获取调度类型，默认为daily
+                    "time": task["time"],
+                    "message": task["message"],
+                    "status": task.get("status", {  # 获取状态信息，如果不存在则使用默认值
+                        "is_running": False,
+                        "last_execution": None,
+                        "last_success": None,
+                        "last_error": None,
+                        "total_attempts": 0,
+                        "success_count": 0,
+                        "error_count": 0
+                    })
+                }
+                
+                # 添加到内存中的任务列表
+                self.scheduled_tasks.append(task_obj)
+                    
+                # 调度任务
+                self.schedule_task(
+                    task_obj["id"],
+                    task_obj["tag"],
+                    task_obj["time"],
+                    task_obj["message"]
+                )
+            logger.info(f"[ConfigGUIWeb] Successfully loaded {len(tasks)} scheduled tasks")
         except Exception as e:
             logger.error(f"[ConfigGUIWeb] Failed to load scheduled tasks: {e}")
 
@@ -322,9 +344,73 @@ class ConfigGUIWebPlugin(Plugin):
             
             # 添加到调度器
             try:
-                job = schedule.every().day.at(time_str).do(lambda: self.job(task))
-                job.tag(task_id)
-                logger.info(f"[ConfigGUIWeb] Task {task_id} scheduled successfully for {time_str}")
+                def job(task):
+                    """任务执行函数"""
+                    task_id = task["id"]
+                    tag = task["tag"]
+                    message = task["message"]
+
+                    if not self._task_locks.get(task_id):
+                        self._task_locks[task_id] = threading.Lock()
+                    
+                    if not self._task_locks[task_id].acquire(blocking=False):
+                        logger.warning(f"[ConfigGUIWeb] Task {task_id} is already running")
+                        return
+
+                    try:
+                        task["status"]["is_running"] = True
+                        task["status"]["last_execution"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        task["status"]["total_attempts"] += 1
+                        # 获所有微信好友
+                        # 首先检查登录状态
+                        if not itchat.instance.alive:
+                            try:
+                                itchat.auto_login(
+                                    hotReload=True
+                                )
+                                logger.info("[ConfigGUIWeb] Successfully re-logged into WeChat")
+                            except Exception as e:
+                                logger.error(f"[ConfigGUIWeb] Failed to re-login to WeChat: {str(e)}")
+                                return jsonify({"error": "WeChat login required. Please scan QR code to login."}), 401
+
+                # 获取指定标签的好友列表           
+                        # 获取好友列表并发送消息
+                        friends = itchat.get_friends(update=True)
+                        target_friends = self.get_friends_by_tag(tag, friends)
+                        
+                        if not target_friends:
+                            raise Exception(f"No friends found with tag: {tag}")
+                        
+                        for friend in target_friends:
+                            if not self.can_send_message():
+                                time.sleep(60)
+                                if not self.can_send_message():
+                                    raise Exception("Message sending limit reached")
+                                    
+                            result = itchat.send(message, toUserName=friend['UserName'])
+                            if result['BaseResponse']['Ret'] == 0:
+                                task["status"]["success_count"] += 1
+                                self.update_message_counter(success=True)
+                            else:
+                                raise Exception(f"Failed to send message: {result}")
+                                
+                            time.sleep(random.uniform(2, 5))
+                        
+                        task["status"]["last_success"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        task["status"]["last_error"] = None
+                        
+                    except Exception as e:
+                        task["status"]["error_count"] += 1
+                        task["status"]["last_error"] = str(e)
+                        logger.error(f"[ConfigGUIWeb] Task {task_id} failed: {e}")
+                    finally:
+                        task["status"]["is_running"] = False
+                        self._task_locks[task_id].release()
+                
+                schedule.every().day.at(time_str).do(job, task).tag(task_id)
+                logger.info(f"[ConfigGUIWeb] Task {task_id} scheduled successfully")
+                return True
+                
             except Exception as e:
                 logger.error(f"[ConfigGUIWeb] Failed to add task {task_id} to scheduler: {e}")
                 # 从任务列表中移除失败的任务
@@ -356,14 +442,24 @@ class ConfigGUIWebPlugin(Plugin):
             with open(plugin_config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
             
-            # 更新任务列表，但保留任务状态
+            # 更新任务列表，保留所有字段
             tasks_to_save = []
             for task in self.scheduled_tasks:
                 task_copy = {
                     "id": task["id"],
                     "tag": task["tag"],
+                    "schedule_type": task.get("schedule_type", "daily"),  # 保存调度类型，默认为daily
                     "time": task["time"],
-                    "message": task["message"]
+                    "message": task["message"],
+                    "status": task.get("status", {  # 保存状态信息
+                        "is_running": False,
+                        "last_execution": None,
+                        "last_success": None,
+                        "last_error": None,
+                        "total_attempts": 0,
+                        "success_count": 0,
+                        "error_count": 0
+                    })
                 }
                 tasks_to_save.append(task_copy)
             
@@ -567,7 +663,22 @@ class ConfigGUIWebPlugin(Plugin):
                     
                     # 添加额外状态信息
                     task_copy['next_run'] = next_run.strftime("%Y-%m-%d %H:%M:%S") if next_run else None
-                    task_copy['success_rate'] = self._calculate_success_rate(task)
+                    
+                    # 确保状态字段存在
+                    if 'status' not in task_copy:
+                        task_copy['status'] = {
+                            'is_running': False,
+                            'last_execution': None,
+                            'last_success': None,
+                            'last_error': None,
+                            'total_attempts': 0,
+                            'success_count': 0,
+                            'error_count': 0
+                        }
+                    
+                    # 计算成功率
+                    success_rate = self._calculate_success_rate(task_copy)
+                    task_copy['success_rate'] = success_rate if success_rate is not None else 0
                     
                     tasks_status.append(task_copy)
                 except Exception as e:
@@ -592,117 +703,49 @@ class ConfigGUIWebPlugin(Plugin):
         """计算任务的成功率"""
         try:
             status = task.get("status", {})
-            total_executions = status.get("error_count", 0) + (1 if status.get("last_success") else 0)
-            if total_executions == 0:
-                return None
-            success_count = 1 if status.get("last_success") else 0
-            return round(success_count / total_executions * 100, 2)
+            total_attempts = status.get("total_attempts", 0)
+            if total_attempts == 0:
+                return 0
+            success_count = status.get("success_count", 0)
+            return round((success_count / total_attempts) * 100, 2)
         except Exception as e:
             logger.error(f"[ConfigGUIWeb] Error calculating success rate: {e}")
-            return None
+            return 0
 
     def update_task(self, task_id, tag, time_str, message):
         """更新定时任务"""
         try:
-            logger.info(f"[ConfigGUIWeb] Updating task {task_id}")
-            
-            # 确保任务存在
+            # 验证时间格式
+            try:
+                time.strptime(time_str, "%H:%M")
+            except ValueError:
+                logger.error(f"[ConfigGUIWeb] Invalid time format for task {task_id}: {time_str}")
+                return False
+
+            # 找到并更新任务
             task = None
-            task_index = None
-            for i, t in enumerate(self.scheduled_tasks):
-                if t.get('id') == task_id:
+            for t in self.scheduled_tasks:
+                if t.get("id") == task_id:
                     task = t
-                    task_index = i
                     break
-                    
-            if task is None:
+
+            if not task:
                 logger.error(f"[ConfigGUIWeb] Task {task_id} not found")
                 return False
-                
-            # 清除旧的任务
-            try:
-                schedule.clear(task_id)
-                logger.info(f"[ConfigGUIWeb] Cleared old task {task_id}")
-            except Exception as e:
-                logger.error(f"[ConfigGUIWeb] Error clearing old task {task_id}: {e}")
-            
-            # 创建新的任务配置
-            new_task = {
-                "id": task_id,
+
+            # 更新任务配置
+            task.update({
                 "tag": tag,
                 "time": time_str,
-                "message": message,
-                "status": {
-                    "is_running": False,
-                    "last_execution": None,
-                    "last_success": None,
-                    "last_error": None,
-                    "total_attempts": 0,
-                    "success_count": 0,
-                    "error_count": 0
-                }
-            }
-            
-            # 更新任务列表
-            self.scheduled_tasks[task_index] = new_task
-            
-            # 添加到调度器
-            try:
-                def job():
-                    """任务执行函数"""
-                    if not self._task_locks.get(task_id):
-                        self._task_locks[task_id] = threading.Lock()
-                    
-                    if not self._task_locks[task_id].acquire(blocking=False):
-                        logger.warning(f"[ConfigGUIWeb] Task {task_id} is already running")
-                        return
+                "message": message
+            })
 
-                    try:
-                        new_task["status"]["is_running"] = True
-                        new_task["status"]["last_execution"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        new_task["status"]["total_attempts"] += 1
-                        
-                        # 获取好友列表并发送消息
-                        friends = itchat.get_friends(update=True)
-                        target_friends = self.get_friends_by_tag(tag, friends)
-                        
-                        if not target_friends:
-                            raise Exception(f"No friends found with tag: {tag}")
-                        
-                        for friend in target_friends:
-                            if not self.can_send_message():
-                                time.sleep(60)
-                                if not self.can_send_message():
-                                    raise Exception("Message sending limit reached")
-                                    
-                            result = itchat.send(message, toUserName=friend['UserName'])
-                            if result['BaseResponse']['Ret'] == 0:
-                                new_task["status"]["success_count"] += 1
-                                self.update_message_counter(success=True)
-                            else:
-                                raise Exception(f"Failed to send message: {result}")
-                                
-                            time.sleep(random.uniform(2, 5))
-                        
-                        new_task["status"]["last_success"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        new_task["status"]["last_error"] = None
-                        
-                    except Exception as e:
-                        new_task["status"]["error_count"] += 1
-                        new_task["status"]["last_error"] = str(e)
-                        logger.error(f"[ConfigGUIWeb] Task {task_id} failed: {e}")
-                    finally:
-                        new_task["status"]["is_running"] = False
-                        self._task_locks[task_id].release()
-                
-                schedule.every().day.at(time_str).do(job).tag(task_id)
-                logger.info(f"[ConfigGUIWeb] Task {task_id} rescheduled successfully")
-                return True
-                
-            except Exception as e:
-                logger.error(f"[ConfigGUIWeb] Failed to reschedule task {task_id}: {e}")
-                return False
-                
+            # 保存配置到文件
+            self._save_tasks_config()
+
+            # 更新调度器中的任务
+            return self.update_schedule_job(task_id, time_str)
+
         except Exception as e:
             logger.error(f"[ConfigGUIWeb] Failed to update task {task_id}: {e}")
             return False
@@ -721,16 +764,105 @@ class ConfigGUIWebPlugin(Plugin):
                     break
                     
             if task:
+                def job(task):
+                    """任务执行函数"""
+                    task_id = task["id"]
+                    tag = task["tag"]
+                    message = task["message"]
+
+                    if not self._task_locks.get(task_id):
+                        self._task_locks[task_id] = threading.Lock()
+                    
+                    if not self._task_locks[task_id].acquire(blocking=False):
+                        logger.warning(f"[ConfigGUIWeb] Task {task_id} is already running")
+                        return
+
+                    try:
+                        task["status"]["is_running"] = True
+                        task["status"]["last_execution"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        task["status"]["total_attempts"] += 1
+                        # 获所有微信好友
+                        # 首先检查登录状态
+                        if not itchat.instance.alive:
+                            try:
+                                itchat.auto_login(
+                                    hotReload=True
+                                )
+                                logger.info("[ConfigGUIWeb] Successfully re-logged into WeChat")
+                            except Exception as e:
+                                logger.error(f"[ConfigGUIWeb] Failed to re-login to WeChat: {str(e)}")
+                                return jsonify({"error": "WeChat login required. Please scan QR code to login."}), 401
+
+                # 获取指定标签的好友列表           
+                        # 获取好友列表并发送消息
+                        friends = itchat.get_friends(update=True)
+                        target_friends = self.get_friends_by_tag(tag, friends)
+                        
+                        if not target_friends:
+                            raise Exception(f"No friends found with tag: {tag}")
+                        
+                        for friend in target_friends:
+                            if not self.can_send_message():
+                                time.sleep(60)
+                                if not self.can_send_message():
+                                    raise Exception("Message sending limit reached")
+                                    
+                            result = itchat.send(message, toUserName=friend['UserName'])
+                            if result['BaseResponse']['Ret'] == 0:
+                                task["status"]["success_count"] += 1
+                                self.update_message_counter(success=True)
+                            else:
+                                raise Exception(f"Failed to send message: {result}")
+                                
+                            time.sleep(random.uniform(2, 5))
+                        
+                        task["status"]["last_success"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        task["status"]["last_error"] = None
+                        
+                    except Exception as e:
+                        task["status"]["error_count"] += 1
+                        task["status"]["last_error"] = str(e)
+                        logger.error(f"[ConfigGUIWeb] Task {task_id} failed: {e}")
+                    finally:
+                        task["status"]["is_running"] = False
+                        self._task_locks[task_id].release()
+                
                 # 重新调度任务
-                schedule.every().day.at(time_str).do(lambda: self.job(task)).tag(task_id)
+                schedule.every().day.at(time_str).do(job, task).tag(task_id)
                 logger.info(f"[ConfigGUIWeb] Task {task_id} rescheduled successfully")
                 return True
+                
             else:
                 logger.error(f"[ConfigGUIWeb] Task {task_id} not found")
                 return False
                 
         except Exception as e:
             logger.error(f"[ConfigGUIWeb] Failed to update task {task_id}: {e}")
+            return False
+
+    def _save_tasks_config(self):
+        """保存任务配置到文件"""
+        try:
+            # 读取现有配置
+            plugin_config_path = os.path.join("plugins", "tag_manager", "config.json")
+            if os.path.exists(plugin_config_path):
+                with open(plugin_config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+            else:
+                config = {}
+
+            # 更新任务列表
+            config["scheduled_tasks"] = self.scheduled_tasks
+
+            # 保存配置
+            with open(plugin_config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=4)
+            
+            logger.info("[ConfigGUIWeb] Tasks configuration saved successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[ConfigGUIWeb] Failed to save tasks configuration: {e}")
             return False
 
 # Flask路由和API端点
@@ -943,16 +1075,28 @@ def get_tasks():
             
         tasks = []
         for task in plugin.scheduled_tasks:
+            # 从任务对象中获取调度类型，如果不存在则从配置文件中获取
+            schedule_type = task.get("schedule_type")
+            if not schedule_type:
+                # 从配置文件中读取任务信息
+                try:
+                    with open(os.path.join("plugins", "tag_manager", "config.json"), 'r', encoding='utf-8') as f:
+                        config = json.load(f)
+                        for saved_task in config.get("scheduled_tasks", []):
+                            if saved_task.get("id") == task["id"]:
+                                schedule_type = saved_task.get("schedule_type", "daily")
+                                break
+                except Exception as e:
+                    logger.error(f"[ConfigGUIWeb] Failed to read schedule_type from config: {e}")
+                    schedule_type = "daily"  # 默认值
+            
             task_info = {
                 "id": task["id"],
                 "tag": task["tag"],
+                "schedule_type": schedule_type or "daily",  # 确保有默认值
                 "time": task["time"],
                 "message": task["message"],
-                "status": {
-                    "is_running": task["status"]["is_running"],
-                    "last_execution": task["status"]["last_execution"].isoformat() if task["status"]["last_execution"] else None,
-                    "error_count": task["status"]["error_count"]
-                }
+                "last_execution": task["status"]["last_execution"]  # 只保留上次执行时间
             }
             tasks.append(task_info)
             
@@ -983,6 +1127,7 @@ def add_task():
 
         data = request.get_json()
         tag = data.get("tag")
+        schedule_type = data.get("schedule_type", "daily")  # 获取调度类型，默认为daily
         time_str = data.get("time")
         message = data.get("message")
         
@@ -1013,8 +1158,16 @@ def add_task():
                     config["scheduled_tasks"].append({
                         "id": task_id,
                         "tag": tag,
+                        "schedule_type": schedule_type,  # 保存调度类型
                         "time": time_str,
-                        "message": message
+                        "message": message,
+                        "status": {  # 添加状态字段
+                            "is_running": False,
+                            "last_execution": None,
+                            "error_count": 0,
+                            "total_attempts": 0,
+                            "success_count": 0
+                        }
                     })
                 
                 # 保存更新后的配置
@@ -1042,6 +1195,7 @@ def update_task_api(task_id):
 
         data = request.get_json()
         tag = data.get("tag")
+        schedule_type = data.get("schedule_type", "daily")  # 获取调度类型，默认为daily
         time_str = data.get("time")
         message = data.get("message")
         
@@ -1062,21 +1216,81 @@ def update_task_api(task_id):
         # 更新任务配置
         task.update({
             "tag": tag,
+            "schedule_type": schedule_type,  # 更新调度类型
             "time": time_str,
             "message": message
         })
         
-        # 保存配置
-        plugin_instance.save_config()
-        
-        # 更新调度器中的任务
-        if plugin_instance.update_schedule_job(task_id, time_str):
-            return jsonify({"message": "任务更新成功"})
-        else:
-            return jsonify({"error": "更新调度器失败"}), 500
+        # 更新配置文件中的任务
+        try:
+            plugin_config_path = os.path.join("plugins", "tag_manager", "config.json")
+            with open(plugin_config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                
+            # 更新任务信息
+            for saved_task in config.get("scheduled_tasks", []):
+                if saved_task.get("id") == task_id:
+                    saved_task.update({
+                        "tag": tag,
+                        "schedule_type": schedule_type,  # 更新调度类型
+                        "time": time_str,
+                        "message": message
+                    })
+                    break
+            
+            # 保存更新后的配置
+            with open(plugin_config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=4)
+                
+            # 更新调度器中的任务
+            plugin_instance.update_schedule_job(task_id, time_str)
+            
+            return jsonify({"message": "任务更新成功"}), 200
+            
+        except Exception as e:
+            logger.error(f"[ConfigGUIWeb] 更新任务配置失败: {e}")
+            return jsonify({"error": "更新任务配置失败"}), 500
             
     except Exception as e:
         logger.error(f"[ConfigGUIWeb] 更新任务失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/tasks/<task_id>', methods=['DELETE'])
+def delete_task(task_id):
+    """删除定时任务"""
+    try:
+        plugin_instance = get_plugin_instance()
+        if not plugin_instance:
+            return jsonify({"error": "插件实例未初始化"}), 500
+            
+        # 从调度器中移除任务
+        schedule.clear(task_id)
+        
+        # 从内存中的任务列表移除任务
+        plugin_instance.scheduled_tasks = [t for t in plugin_instance.scheduled_tasks if t.get("id") != task_id]
+        
+        # 从配置文件中移除任务
+        try:
+            plugin_config_path = os.path.join("plugins", "tag_manager", "config.json")
+            with open(plugin_config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                
+            # 从配置中移除任务
+            if "scheduled_tasks" in config:
+                config["scheduled_tasks"] = [t for t in config["scheduled_tasks"] if t.get("id") != task_id]
+                
+                # 保存更新后的配置
+                with open(plugin_config_path, 'w', encoding='utf-8') as f:
+                    json.dump(config, f, ensure_ascii=False, indent=4)
+            
+            return jsonify({"message": "任务删除成功"}), 200
+            
+        except Exception as e:
+            logger.error(f"[ConfigGUIWeb] 从配置中删除任务失败: {e}")
+            return jsonify({"error": "删除任务配置失败"}), 500
+            
+    except Exception as e:
+        logger.error(f"[ConfigGUIWeb] 删除任务失败: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/broadcast', methods=['POST'])
@@ -1219,7 +1433,10 @@ def import_config():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         if os.path.exists("config.json"):
-            shutil.copy2("config.json", f"configs/config_backup_{timestamp}.json")
+            config_dir = "configs"
+            if not os.path.exists(config_dir):
+                os.makedirs(config_dir)
+            shutil.copy2("config.json", os.path.join(config_dir, f"config_backup_{timestamp}.json"))
             
         plugin_config_path = os.path.join("plugins", "tag_manager", "config.json")
         if os.path.exists(plugin_config_path):
@@ -1233,7 +1450,7 @@ def import_config():
         os.makedirs(os.path.dirname(plugin_config_path), exist_ok=True)
         with open(plugin_config_path, 'w', encoding='utf-8') as f:
             json.dump(tag_config, f, ensure_ascii=False, indent=4)
-        
+            
         return jsonify({
             "message": "Configuration imported successfully",
             "backup_timestamp": timestamp
