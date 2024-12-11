@@ -5,6 +5,7 @@ import logging
 from collections import OrderedDict
 
 import requests
+import xml.etree.ElementTree as ET
 
 from .. import config, utils
 from ..returnvalues import ReturnValue
@@ -78,12 +79,22 @@ def produce_msg(core, msgList):
         m['User'].core = core
         if m['MsgType'] == 1: # words
             if m['Url']:
-                regx = r'(.+?\(.+?\))'
-                data = re.search(regx, m['Content'])
-                data = 'Map' if data is None else data.group(1)
+                # regx = r'(.+?\(.+?\))'
+                # data = re.search(regx, m['Content'])
+                # data = 'Map' if data is None else data.group(1)
+                # msg = {
+                #     'Type': 'Map',
+                #     'Text': data,}
+                xml_data = m['OriContent']
+                # 解析 XML
+                root = ET.fromstring(xml_data)
+
+                # 获取 location 节点的 label 属性值
+                location = root.find('location').get('label')
+                name = root.find('location').get('poiname')
                 msg = {
-                    'Type': 'Map',
-                    'Text': data,}
+                    'Type': 'Text',
+                    'Text': "地址: " + name + location + " (定位)", }
             else:
                 msg = {
                     'Type': 'Text',

@@ -68,4 +68,6 @@ def run():
 
 
 if __name__ == "__main__":
+    # 在程序启动时设置
+    os.environ['DISPLAY'] = ':99'
     run()

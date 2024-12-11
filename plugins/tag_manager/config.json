@@ -1,0 +1,37 @@
+{
+    "enable": true,
+    "tag_prefix": "$",
+    "allow_all_add_tag": false,
+    "allow_all_remove_tag": false,
+    "allow_all_view_tag": true,
+    "allow_all_list_tag": true,
+    "admin_users": [
+        "小溪水",
+        "赵健13930639123"
+    ],
+    "enabled_tags": [
+        "家人",
+        "朋友",
+        "客户",
+        "同事"
+    ],
+    "auto_reply": {},
+    "tags_friends": {
+        "家人": [
+            "画画的胡栋"
+        ],
+        "朋友": [
+            "2046",
+            "清欢"
+        ]
+    },
+    "scheduled_tasks": [
+        {
+            "id": "task_1733811893",
+            "tag": "朋友",
+            "time": "10:05",
+            "message": "测试消息2"
+        }
+    ],
+    "updateAutoReplyTable": true
+}

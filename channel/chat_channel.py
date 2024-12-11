@@ -91,13 +91,29 @@ class ChatChannel(Channel):
 
         # 消息内容匹配过程，并处理content
         if ctype == ContextType.TEXT:
-            if first_in and "」\n- - - - - - -" in content:  # 初次匹配 过滤引用消息
-                logger.debug(content)
-                logger.debug("[chat_channel]reference query skipped")
-                return None
+            #if first_in and "」\n- - - - - - -" in content:  # 初次匹配 过滤引用消息
+                #logger.debug(content)
+                #logger.debug("[chat_channel]reference query skipped")
+                #return None
 
             nick_name_black_list = conf().get("nick_name_black_list", [])
             if context.get("isgroup", False):  # 群聊
+                #校验是否忽略用户发言
+                config = conf()
+                cmsg = context["msg"]
+                user_nick_name = cmsg.actual_user_nickname
+                #用户昵称黑名单
+                nick_name_black_list = config.get("nick_name_black_list", [])
+                if (user_nick_name and user_nick_name in nick_name_black_list
+                ):
+                    return None
+
+                # 用户昵称白名单
+                nick_name_white_list = config.get("nick_name_white_list", [])
+                if (user_nick_name and (user_nick_name not in nick_name_white_list)
+                ):
+                    return None
+                    
                 # 校验关键字
                 match_prefix = check_prefix(content, conf().get("group_chat_prefix"))
                 match_contain = check_contain(content, conf().get("group_chat_keyword"))
@@ -190,6 +206,15 @@ class ChatChannel(Channel):
             logger.debug("[chat_channel] ready to handle context: type={}, content={}".format(context.type, context.content))
             if context.type == ContextType.TEXT or context.type == ContextType.IMAGE_CREATE:  # 文字和图片消息
                 context["channel"] = e_context["channel"]
+                cmsg = context["msg"]
+                if '报单结束' in cmsg.content :
+                    logger.debug("报单结束，加上群名和保单人信息")
+                    user_nick_name = cmsg.actual_user_nickname
+                    group_name = cmsg.from_user_nickname
+                    context.content = context.content + ' (群名:' + group_name + ', 报单人:' + user_nick_name + ')'
+                else:
+                    logger.debug("继续执行")
+                
                 reply = super().build_reply_content(context.content, context)
             elif context.type == ContextType.VOICE:  # 语音消息
                 cmsg = context["msg"]

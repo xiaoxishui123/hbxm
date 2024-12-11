@@ -8,3 +8,7 @@ Pillow
 pre-commit
 web.py
 linkai>=0.0.6.0
+croniter
+itchat-uos>=1.5.0.dev0
+schedule>=1.1.0
+pytz>=2023.3

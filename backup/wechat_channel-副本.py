@@ -1,4 +1,5 @@
-      # encoding:utf-8
+      
+# encoding:utf-8
 
 """
 wechat channel
@@ -115,49 +116,26 @@ class WechatChannel(ChatChannel):
         self.auto_login_times = 0
 
     def startup(self):
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            try:
-                itchat.instance.receivingRetryCount = 600  # 修改断线超时时间
-                # login by scan QRCode
-                hotReload = conf().get("hot_reload", False)
-                status_path = os.path.join(get_appdata_dir(), "itchat.pkl")
-                
-                # 如果存在旧的登录文件，先尝试删除
-                if retry_count > 0 and os.path.exists(status_path):
-                    try:
-                        os.remove(status_path)
-                        logger.info(f"Removed old status file: {status_path}")
-                    except Exception as e:
-                        logger.warning(f"Failed to remove status file: {e}")
-                
-                itchat.auto_login(
-                    enableCmdQR=2,
-                    hotReload=hotReload,
-                    statusStorageDir=status_path,
-                    qrCallback=qrCallback,
-                    exitCallback=self.exitCallback,
-                    loginCallback=self.loginCallback
-                )
-                
-                self.user_id = itchat.instance.storageClass.userName
-                self.name = itchat.instance.storageClass.nickName
-                logger.info("Wechat login success, user_id: {}, nickname: {}".format(self.user_id, self.name))
-                
-                # start message listener
-                itchat.run()
-                break
-                
-            except Exception as e:
-                retry_count += 1
-                logger.error(f"Login attempt {retry_count} failed: {str(e)}")
-                if retry_count >= max_retries:
-                    logger.error("Max retry attempts reached. Login failed.")
-                    raise
-                logger.info(f"Retrying login in 5 seconds...")
-                time.sleep(5)
+        try:
+            itchat.instance.receivingRetryCount = 600  # 修改断线超时时间
+            # login by scan QRCode
+            hotReload = conf().get("hot_reload", False)
+            status_path = os.path.join(get_appdata_dir(), "itchat.pkl")
+            itchat.auto_login(
+                enableCmdQR=2,
+                hotReload=hotReload,
+                statusStorageDir=status_path,
+                qrCallback=qrCallback,
+                exitCallback=self.exitCallback,
+                loginCallback=self.loginCallback
+            )
+            self.user_id = itchat.instance.storageClass.userName
+            self.name = itchat.instance.storageClass.nickName
+            logger.info("Wechat login success, user_id: {}, nickname: {}".format(self.user_id, self.name))
+            # start message listener
+            itchat.run()
+        except Exception as e:
+            logger.exception(e)
 
     def exitCallback(self):
         try:
@@ -322,3 +300,5 @@ def _send_qr_code(qrcode_list: list):
             chat_client.send_qrcode(qrcode_list)
     except Exception as e:
         pass
+
+    

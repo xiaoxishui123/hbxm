@@ -9,6 +9,8 @@ CLAUDEAI = "claude"  # 使用cookie的历史模型
 CLAUDEAPI= "claudeAPI"  # 通过Claude api调用模型
 QWEN = "qwen"  # 旧版通义模型
 QWEN_DASHSCOPE = "dashscope"  # 通义新版sdk和api key
+COZE = "coze"
+DIFY = "dify"
 
 
 GEMINI = "gemini"  # gemini-1.0-pro
@@ -65,7 +67,7 @@ MODEL_LIST = [
               "claude", "claude-3-haiku", "claude-3-sonnet", "claude-3-opus", "claude-3-opus-20240229", "claude-3.5-sonnet",
               "moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k",
               QWEN, QWEN_TURBO, QWEN_PLUS, QWEN_MAX,
-              LINKAI_35, LINKAI_4_TURBO, LINKAI_4o
+              LINKAI_35, LINKAI_4_TURBO, LINKAI_4o, DIFY, COZE
             ]
 
 # channel
