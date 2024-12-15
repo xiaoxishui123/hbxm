@@ -1,0 +1,29 @@
+{
+    "enable": false,
+    "tag_prefix": "$",
+    "allow_all_add_tag": false,
+    "allow_all_remove_tag": false,
+    "allow_all_view_tag": true,
+    "allow_all_list_tag": true,
+    "admin_users": [],
+    "enabled_tags": [
+        "家人"
+    ],
+    "auto_reply": {},
+    "tags_friends": {},
+    "scheduled_tasks": [
+        {
+            "id": "task_1733981021",
+            "tag": "家人",
+            "time": "13:25",
+            "message": "多撒范德萨都是"
+        },
+        {
+            "id": "task_1733987372",
+            "tag": "家人",
+            "time": "15:20",
+            "message": "法撒旦撒旦撒"
+        }
+    ],
+    "updateAutoReplyTable": true
+}

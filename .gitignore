@@ -31,4 +31,6 @@ plugins/banwords/lib/__pycache__
 !plugins/keyword
 !plugins/linkai
 !plugins/config_gui_web
+!plugins/tag_manager
+!plugins/timetask
 client_config.json

@@ -1,0 +1,35 @@
+{
+    "enable": false,
+    "tag_prefix": "$",
+    "allow_all_add_tag": false,
+    "allow_all_remove_tag": false,
+    "allow_all_view_tag": true,
+    "allow_all_list_tag": true,
+    "admin_users": [],
+    "enabled_tags": [
+        "家人"
+    ],
+    "auto_reply": {},
+    "tags_friends": {},
+    "scheduled_tasks": [
+        {
+            "id": "task_1733981686323",
+            "tag": "家人",
+            "time": "08:30",
+            "message": "早上好，新的一天开始啦！"
+        },
+        {
+            "id": "task_1733981686323",
+            "tag": "家人",
+            "time": "12:00",
+            "message": "中午好，记得按时吃午饭哦！"
+        },
+        {
+            "id": "task_1733981686323",
+            "tag": "家人",
+            "time": "22:00",
+            "message": "晚安，早点休息！"
+        }
+    ],
+    "updateAutoReplyTable": true
+}
